@@ -1,6 +1,7 @@
 /*
     This file is part of Leela Zero.
     Copyright (C) 2017-2018 Gian-Carlo Pascutto and contributors
+    Copyright (C) 2018 SAI Team
 
     Leela Zero is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -22,7 +23,6 @@
 #include "config.h"
 
 #include <array>
-#include <bitset>
 #include <memory>
 #include <string>
 #include <utility>
@@ -32,13 +32,38 @@
 #include "FastState.h"
 #include "GameState.h"
 
+
+
+float sigmoid(float alpha, float beta, float bonus);
+
+static constexpr int SINGLE = 1;
+static constexpr int DOUBLE_V = 2;
+static constexpr int DOUBLE_Y = 3;
+static constexpr int DOUBLE_T = 4;
+static constexpr int DOUBLE_I = 5;
+
+extern bool is_mult_komi_net;
+
+struct netarch {
+  int value_head_type = SINGLE;
+  size_t residual_blocks = size_t{3};
+  size_t channels = size_t{128};
+  size_t input_planes = size_t{18};
+  size_t policy_outputs = size_t{2};
+  size_t val_outputs = size_t{1};
+  size_t vbe_outputs = size_t{0};
+  size_t val_chans = size_t{256};
+  size_t vbe_chans = size_t{0};
+  size_t value_head_rets = size_t{1};
+};
+
+
+
 class Network {
 public:
     enum Ensemble {
-        DIRECT, RANDOM_SYMMETRY
+        DIRECT, RANDOM_SYMMETRY, AVERAGE
     };
-    using BoardPlane = std::bitset<BOARD_SQUARES>;
-    using NNPlanes = std::vector<BoardPlane>;
     using ScoreVertexPair = std::pair<float,int>;
 
     struct Netresult {
@@ -49,20 +74,27 @@ public:
         float policy_pass;
 
         // winrate
-        float winrate;
+        float value;
 
-        Netresult() : policy(BOARD_SQUARES), policy_pass(0.0f), winrate(0.0f) {}
+        // sigmoid alpha
+        float alpha;
+
+        // sigmoid beta
+        float beta;
+
+        Netresult() : policy(BOARD_SQUARES), policy_pass(0.0f), alpha(0.0f), beta(0.0f) {}
     };
 
     static Netresult get_scored_moves(const GameState* const state,
                                       const Ensemble ensemble,
                                       const int symmetry = -1,
                                       const bool skip_cache = false);
-    // File format version
+
     static constexpr auto INPUT_MOVES = 8;
     static constexpr auto INPUT_CHANNELS = 2 * INPUT_MOVES + 2;
-    static constexpr auto OUTPUTS_POLICY = 2;
-    static constexpr auto OUTPUTS_VALUE = 1;
+  //static constexpr auto OUTPUTS_POLICY = 2;
+  //static constexpr auto OUTPUTS_VAL = 1;
+  //static constexpr auto OUTPUTS_VBE = 1;
 
     // Winograd filter transformation changes 3x3 filters to 4x4
     static constexpr auto WINOGRAD_ALPHA = 4;
@@ -72,12 +104,14 @@ public:
     static void benchmark(const GameState * const state,
                           const int iterations = 1600);
     static void show_heatmap(const FastState * const state,
-                             const Netresult & netres, const bool topmoves);
+                             const Netresult & netres, const bool topmoves,
+			     const bool stdout);
 
-    static void gather_features(const GameState* const state, NNPlanes& planes);
+    static std::vector<net_t> gather_features(const GameState* const state,
+                                              const int symmetry);
 private:
-    static std::pair<int, int> load_v1_network(std::istream& wtfile);
-    static std::pair<int, int> load_network_file(const std::string& filename);
+    static int load_v1_network(std::istream& wtfile);
+    static int load_network_file(const std::string& filename);
     static void process_bn_var(std::vector<float>& weights,
                                const float epsilon = 1e-5f);
 
@@ -102,16 +136,20 @@ private:
                                const std::vector<float>& V,
                                std::vector<float>& M, const int C, const int K);
     static int get_nn_idx_symmetry(const int vertex, int symmetry);
-    static void fill_input_plane_pair(
-      const FullBoard& board, BoardPlane& black, BoardPlane& white);
-    static Netresult get_scored_moves_internal(
-      const NNPlanes& planes, const int symmetry);
+    static void fill_input_plane_pair(const FullBoard& board,
+                                      std::vector<net_t>::iterator black,
+                                      std::vector<net_t>::iterator white,
+                                      const int symmetry);
+    static Netresult get_scored_moves_internal(const GameState* const state,
+                                               const int symmetry);
 #if defined(USE_BLAS)
     static void forward_cpu(const std::vector<float>& input,
                             std::vector<float>& output_pol,
-                            std::vector<float>& output_val);
+                            std::vector<float>& output_val,
+                            std::vector<float>& output_vbe);
 
 #endif
 };
+
 
 #endif
