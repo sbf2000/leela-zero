@@ -30,6 +30,7 @@
 #include "UCTSearch.h"
 
 extern bool cfg_gtp_mode;
+extern bool cfg_japanese_mode;
 extern bool cfg_allow_pondering;
 extern int cfg_num_threads;
 extern int cfg_max_threads;
@@ -40,9 +41,12 @@ extern int cfg_lagbuffer_cs;
 extern int cfg_resignpct;
 extern int cfg_noise;
 extern bool cfg_fpuzero;
+extern bool cfg_adv_features;
+extern bool cfg_exploit_symmetries;
 extern float cfg_noise_value;
 extern float cfg_komi;
 extern float cfg_lambda;
+extern float cfg_mu;
 extern int cfg_random_cnt;
 extern int cfg_random_min_visits;
 extern float cfg_random_temp;

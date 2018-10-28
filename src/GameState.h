@@ -48,7 +48,8 @@ public:
     void rewind(void); /* undo infinite */
     bool undo_move(void);
     bool forward_move(void);
-    const FullBoard& get_past_board(int moves_ago) const;
+    //    const FullBoard& get_past_board(int moves_ago) const;
+    std::shared_ptr<const KoState> get_past_state(int moves_ago) const;
 
     void play_move(int color, int vertex);
     void play_move(int vertex);
@@ -68,7 +69,7 @@ public:
     int who_resigned() const;
     std::tuple<float,float,float,float,float> get_eval();
     void set_eval(float alpkt, float beta, float pi,
-		  float avg_eval, float eval_bonus);
+		  float avg_eval, float eval_bonus, float eval_base);
     //    void copy_last_rnd_move_num ();
 
 

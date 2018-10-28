@@ -57,6 +57,7 @@ static void parse_commandline(int argc, char *argv[]) {
     gen_desc.add_options()
         ("help,h", "Show commandline options.")
         ("gtp,g", "Enable GTP mode.")
+        ("japanese,j", "Enable Japanese scoring mode.")
         ("threads,t", po::value<int>()->default_value(cfg_num_threads),
                       "Number of threads to use.")
         ("playouts,p", po::value<int>(),
@@ -68,6 +69,8 @@ static void parse_commandline(int argc, char *argv[]) {
                      "Komi")
         ("lambda", po::value<float>()->default_value(cfg_lambda),
                      "Lambda value")
+        ("mu",  po::value<float>()->default_value(cfg_mu),
+                     "Mu value")
         ("lagbuffer,b", po::value<int>()->default_value(cfg_lagbuffer_cs),
                         "Safety margin for time usage in centiseconds.")
         ("resignpct,r", po::value<int>()->default_value(cfg_resignpct),
@@ -112,6 +115,9 @@ static void parse_commandline(int argc, char *argv[]) {
 	    po::value<float>()->default_value(cfg_blunder_thr),
 	    "If visits ratio with best is less than this, it's a blunder. "
 	    "Don't save training data for moves before last blunder.")
+        ("symm", "Exploit symmetries by collapsing policy values of "
+         "equivalent moves to a single one, chosen randomly. When writing "
+         "training data, split the visit count evenly among equivalent moves.")
         ;
 #ifdef USE_TUNER
     po::options_description tuner_desc("Tuning options");
@@ -121,6 +127,9 @@ static void parse_commandline(int argc, char *argv[]) {
         ("fpu_reduction", po::value<float>())
         ("fpu_zero", "Use constant fpu=0.5 (AlphaGoZero). "
 	 "The default is reduced parent's value (LeelaZero).")
+        ("adv_features", "Include advanced features (legal moves, "
+         "last liberty intersections) when saving training data. Shorten "
+         "history from 8 past moves to last 4.")
         ;
 #endif
     // These won't be shown, we use them to catch incorrect usage of the
@@ -175,6 +184,9 @@ static void parse_commandline(int argc, char *argv[]) {
     if (vm.count("quiet")) {
         cfg_quiet = true;
     }
+#ifndef NDEBUG
+    cfg_quiet = false;
+#endif
 
     if (vm.count("benchmark")) {
         cfg_quiet = true;  // Set this early to avoid unnecessary output.
@@ -193,7 +205,9 @@ static void parse_commandline(int argc, char *argv[]) {
     if (vm.count("fpu_zero")) {
         cfg_fpuzero = true;
     }
-
+    if (vm.count("adv_features")) {
+	cfg_adv_features  = true;
+    }
 #endif
 
     if (vm.count("logfile")) {
@@ -201,7 +215,14 @@ static void parse_commandline(int argc, char *argv[]) {
         myprintf("Logging to %s.\n", cfg_logfile.c_str());
         cfg_logfile_handle = fopen(cfg_logfile.c_str(), "a");
     }
-
+#ifndef NDEBUG
+    else {
+        cfg_logfile = "std_log";
+        myprintf("Logging to %s.\n", cfg_logfile.c_str());
+        cfg_logfile_handle = fopen(cfg_logfile.c_str(), "a");
+    }
+#endif
+    
     if (vm.count("weights")) {
         cfg_weightsfile = vm["weights"].as<std::string>();
     } else {
@@ -211,6 +232,10 @@ static void parse_commandline(int argc, char *argv[]) {
 
     if (vm.count("gtp")) {
         cfg_gtp_mode = true;
+    }
+
+    if (vm.count("japanese")) {
+        cfg_japanese_mode = true;
     }
 
     if (!vm["threads"].defaulted()) {
@@ -270,6 +295,7 @@ static void parse_commandline(int argc, char *argv[]) {
     }
 
     cfg_lambda = vm["lambda"].as<float>();
+    cfg_mu = vm["mu"].as<float>();
     cfg_komi = vm["komi"].as<float>();
 
     if (vm.count("resignpct")) {
@@ -291,9 +317,9 @@ static void parse_commandline(int argc, char *argv[]) {
     if (vm.count("blunderthr")) {
         cfg_blunder_thr = vm["blunderthr"].as<float>();
     }
-
-
-
+    if (vm.count("symm")) {
+        cfg_exploit_symmetries = true;
+    }
 
     if (vm.count("timemanage")) {
         auto tm = vm["timemanage"].as<std::string>();

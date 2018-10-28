@@ -48,7 +48,17 @@ UCTNode* UCTNode::get_first_child() const {
         return nullptr;
     }
 
+    m_children.front().inflate();
     return m_children.front().get();
+}
+
+UCTNode* UCTNode::get_second_child() const {
+    if (m_children.size() < 2) {
+        return nullptr;
+    }
+
+    m_children[1].inflate();
+    return m_children[1].get();
 }
 
 void UCTNode::kill_superkos(const KoState& state) {
@@ -199,27 +209,30 @@ void UCTNode::inflate_all_children() {
 
 void UCTNode::prepare_root_node(int color,
                                 std::atomic<int>& nodes,
-                                GameState& root_state) {
-    float root_eval, root_value, root_alpkt, root_beta;
-    //    extern bool is_mult_komi_net;
+                                GameState& root_state,
+                                bool fast_roll_out) {
+    float root_value, root_alpkt, root_beta;
 
-    //    const auto had_children = has_children();
+    const auto had_children = has_children();
     if (expandable()) {
         create_children(nodes, root_state, root_value, root_alpkt, root_beta);
     }
-    //    if (had_children) {
-    //      root_eval = get_eval(color);
-    //    } else {
-    //	root_eval = m_net_eval;
-    //        update(root_eval);
-    // this is completely pointless: at root we only need
-    // blackevals of children to be up to date
+    if (has_children() && !had_children) {
+	// blackevals is useless here because root nodes are never
+	// evaluated, nevertheless the number of visits must be updated
+	update(0);
+    }
+    
+    //    root_eval = get_net_eval(color);
+    //    root_eval = (color == FastBoard::BLACK ? root_eval : 1.0f - root_eval);
 
-    root_eval = get_net_eval();
-    root_eval = (color == FastBoard::BLACK ? root_eval : 1.0f - root_eval);
-
-    //    }
-    myprintf("NN eval=%f\n", root_eval);
+#ifndef NDEBUG
+    myprintf("NN eval=%f. Agent eval=%f\n", get_net_eval(color), get_agent_eval(color));
+#else
+    if (!fast_roll_out) {
+        myprintf("NN eval=%f. Agent eval=%f\n", get_net_eval(color), get_agent_eval(color));
+    }
+#endif
 
     // There are a lot of special cases where code assumes
     // all children of the root are inflated, so do that.
@@ -229,10 +242,25 @@ void UCTNode::prepare_root_node(int color,
     // This also removes a lot of special cases.
     kill_superkos(root_state);
 
+    if (fast_roll_out) {
+        return;
+    }
+    
     if (cfg_noise) {
         // Adjust the Dirichlet noise's alpha constant to the board size
         auto alpha = cfg_noise_value * 361.0f / BOARD_SQUARES;
         dirichlet_noise(0.25f, alpha);
+    }
+
+    if (cfg_japanese_mode) {
+        for (auto& child : m_children) {
+            auto score = child->get_score();
+            score *= 0.8f;
+            if (child->get_move() == FastBoard::PASS) {
+                score += 0.2f;
+            }
+            child->set_score(score);
+        }
     }
 }
 

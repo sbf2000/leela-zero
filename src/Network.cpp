@@ -64,7 +64,7 @@
 namespace x3 = boost::spirit::x3;
 using namespace Utils;
 
-static netarch arch;
+netarch arch;
 bool is_mult_komi_net = false;
 
 // Input + residual block tower
@@ -96,7 +96,7 @@ static std::vector<float> ip2_val_b;     // 1 (2 in SINGLE head type)
 static bool value_head_not_stm;
 
 // Symmetry helper
-static std::array<std::array<int, BOARD_SQUARES>, 8> symmetry_nn_idx_table;
+std::array<std::array<int, BOARD_SQUARES>, 8> symmetry_nn_idx_table;
 
 // Value head beta (vbe=Value BEta)
 static std::vector<float> conv_vbe_w;    // channels*vbe_outputs
@@ -262,15 +262,33 @@ int Network::load_v1_network(std::istream& wtfile) {
 		lastlines = linecount - plain_conv_wts - 14;
 	      }
             } else if (linecount % 4 == 1) {
-                // Redundant in our model, but they encode the
-                // number of outputs so we have to read them in.
 	      if (linecount == 1) {
-		arch.channels = n_wts;
-		arch.input_planes = n_wts_1st_layer/9/arch.channels;
-		assert (arch.input_planes == INPUT_CHANNELS);
-		assert (n_wts_1st_layer == arch.input_planes*9*arch.channels);
-		myprintf("%d input planes...%d channels...", arch.input_planes, arch.channels);
-		}
+		  // second line of weights, holds the biases for the
+		  // input convolutional layer, hence its size gives
+		  // the number of channels of subsequent resconv
+		  // layers
+		  arch.channels = n_wts;
+
+		  // we recover the number of input planes
+		  arch.input_planes = n_wts_1st_layer/9/arch.channels;
+
+		  // if it is even, color of the current player is
+		  // used, if it is odd, only komi is used
+		  arch.include_color = (0 == arch.input_planes % 2);
+
+		  // we recover the number of input moves, knowing
+		  // that for each move there are 2 bitplanes with
+		  // stones positions and possibly 2 more bitplanes
+		  // with some advanced features (legal and atari)
+		  arch.input_moves = (arch.input_planes - (arch.include_color ? 2 : 1)) /
+		      (arch.adv_features ? 4 : 2);
+
+		  assert (n_wts_1st_layer == arch.input_planes*9*arch.channels);
+		  myprintf("%d input planes...%d input moves... %d channels...",
+			   arch.input_planes,
+			   arch.input_moves,
+			   arch.channels);
+	      }
 	      else
 		assert (n_wts == arch.channels);
 
@@ -477,7 +495,9 @@ int Network::load_network_file(const std::string& filename) {
         auto iss = std::stringstream{line};
         // First line is the file format version id
         iss >> format_version;
-        if (iss.fail() || (format_version != 1 && format_version != 2)) {
+        if (iss.fail() || (format_version != 1 &&
+			   format_version != 2 &&
+			   format_version != 17)) {
             myprintf("Weights file is the wrong version.\n");
             return 1;
         } else {
@@ -485,10 +505,20 @@ int Network::load_network_file(const std::string& filename) {
             // that they return the score for black instead of
             // the player to move. This is used by ELF Open Go.
             if (format_version == 2) {
+		myprintf("Version 2 weights file (ELF).\n");
                 value_head_not_stm = true;
             } else {
+		if (format_version == 1) {
+		    myprintf("Version 1 weights file (LZ).\n");
+		}
                 value_head_not_stm = false;
             }
+	    if (format_version == 17) {
+		myprintf("Version 17 weights file (advanced board features).\n");
+		arch.adv_features = true;
+	    } else {
+		arch.adv_features = false;
+	    }
             return load_v1_network(buffer);
         }
     }
@@ -1027,8 +1057,18 @@ std::vector<float> softmax(const std::vector<float>& input,
     return output;
 }
 
-float sigmoid(float alpha, float beta, float bonus) {
-  return 1.0f/(1.0f+std::exp(-beta*(alpha+bonus)));
+std::pair<float,float> sigmoid(float alpha, float beta, float bonus) {
+    const auto arg = beta*(alpha+bonus);
+    const auto absarg = std::abs(arg);
+    float ret;
+    
+    if (absarg > 30.0f) {
+        ret = std::exp(-absarg);
+    } else {
+        ret = 1.0f/(1.0f+std::exp(absarg));
+    }
+    return arg<0 ? std::make_pair(ret, 1.0f-ret)
+               : std::make_pair(1.0f-ret, ret);
 }
 
 Network::Netresult Network::get_scored_moves(
@@ -1053,6 +1093,9 @@ Network::Netresult Network::get_scored_moves(
         for (auto sym = 0; sym < 8; ++sym) {
             auto tmpresult = get_scored_moves_internal(state, sym);
             result.policy_pass += tmpresult.policy_pass / 8.0f;
+            result.value += tmpresult.value / 8.0f;
+            result.alpha += tmpresult.alpha / 8.0f;
+            result.beta += tmpresult.beta / 8.0f;
 
             for (auto idx = size_t{0}; idx < BOARD_SQUARES; idx++) {
                 result.policy[idx] += tmpresult.policy[idx] / 8.0f;
@@ -1077,7 +1120,14 @@ Network::Netresult Network::get_scored_moves_internal(
     constexpr auto width = BOARD_SIZE;
     constexpr auto height = BOARD_SIZE;
 
-    const auto input_data = gather_features(state, symmetry);
+    // if the input planes of the loaded network are even, then the
+    // color of the current player is encoded in the last two planes
+    const auto include_color = (0 == arch.input_planes % 2);
+
+    const auto input_data = gather_features(state, symmetry,
+					    arch.input_moves,
+					    arch.adv_features,
+					    include_color);
     std::vector<float> policy_data(arch.policy_outputs * width * height);
     std::vector<float> val_data(arch.val_outputs * width * height);
     std::vector<float> vbe_data(arch.vbe_outputs * width * height);
@@ -1188,22 +1238,68 @@ Network::Netresult Network::get_scored_moves_internal(
     return result;
 }
 
+Network::Netresult_extended Network::get_extended(const FastState& state, const Netresult& result) {
+    const auto komi = state.get_komi();
+    const auto alpha = result.alpha;
+    const auto beta = result.beta;
+
+    const auto winrate = sigmoid(alpha,  beta, state.board.black_to_move() ? -komi : komi);
+    const auto alpkt = (state.board.black_to_move() ? alpha : -alpha) - komi;
+    
+    const auto pi = sigmoid(alpkt, beta, 0.0f);
+    // if pi is near to 1, this is much more precise than 1-pi
+    //    const auto one_m_pi = sigmoid(-alpkt, beta, 0.0f);
+    
+    const auto pi_lambda = std::make_pair((1-cfg_lambda)*pi.first + cfg_lambda*0.5f,
+                                          (1-cfg_lambda)*pi.second + cfg_lambda*0.5f);
+    const auto pi_mu = std::make_pair((1-cfg_mu)*pi.first + cfg_mu*0.5f,
+                                      (1-cfg_mu)*pi.second + cfg_mu*0.5f);
+    
+    // this is useful when lambda is near to 0 and pi near 1
+    //    const auto one_m_pi_lambda = (1-cfg_lambda)*one_m_pi + cfg_lambda*0.5f;
+    const auto sigma_inv_pi_lambda = std::log(pi_lambda.first) - std::log(pi_lambda.second);
+    const auto eval_bonus = (cfg_lambda == 0) ? 0.0f : sigma_inv_pi_lambda / beta - alpkt;
+    
+    //    const auto one_m_pi_mu = (1-cfg_mu)*one_m_pi + cfg_mu*0.5f;
+    const auto sigma_inv_pi_mu = std::log(pi_mu.first) - std::log(pi_mu.second);
+    const auto eval_base = (cfg_mu == 0) ? 0.0f : sigma_inv_pi_mu / beta - alpkt;
+    
+    const auto agent_eval = Utils::sigmoid_interval_avg(alpkt, beta, eval_base, eval_bonus);
+
+    return { winrate.first, alpkt, pi.first, eval_bonus, eval_base, agent_eval };
+}
+
 void Network::show_heatmap(const FastState* const state,
                            const Netresult& result,
-                           const bool topmoves,
-			   const bool stdout = false) {
+                           const bool topmoves) {
     std::vector<std::string> display_map;
     std::string line;
 
+    float legal_score = 0.0f;
+    float illegal_score = 0.0f;
+
+    std::array<float, BOARD_SQUARES> scores;
+    
+    const auto color = state->get_to_move();
+
     for (unsigned int y = 0; y < BOARD_SIZE; y++) {
         for (unsigned int x = 0; x < BOARD_SIZE; x++) {
-            auto score = 0;
             const auto vertex = state->board.get_vertex(x, y);
-            if (state->board.get_square(vertex) == FastBoard::EMPTY) {
-                score = result.policy[y * BOARD_SIZE + x] * 1000;
+            const auto score = result.policy[y * BOARD_SIZE + x];
+            if (state->is_move_legal(color, vertex)) {
+                legal_score += score;
+                scores[y * BOARD_SIZE + x] = score;
+            } else {
+                illegal_score += score;
+                scores[y * BOARD_SIZE + x] = 0.0f;
             }
+        }
+    }
 
-            line += boost::str(boost::format("%3d ") % score);
+    for (unsigned int y = 0; y < BOARD_SIZE; y++) {
+        for (unsigned int x = 0; x < BOARD_SIZE; x++) {
+            const auto clean_score = int(scores[y * BOARD_SIZE + x] * 1000.0f / legal_score);
+            line += boost::str(boost::format("%3d ") % clean_score);
         }
 
         display_map.push_back(line);
@@ -1211,29 +1307,22 @@ void Network::show_heatmap(const FastState* const state,
     }
 
     for (int i = display_map.size() - 1; i >= 0; --i) {
-	if (stdout) {
-	    std::cout << display_map[i] << std::endl;
-	}
-	else {
-	    myprintf("%s\n", display_map[i].c_str());
-	}
+        myprintf("%s\n", display_map[i].c_str());
     }
     const auto pass_score = int(result.policy_pass * 1000);
-    const auto komi = state->get_komi();
-    const auto winrate = sigmoid(result.alpha, result.beta, state->board.black_to_move() ? -komi : komi);
-    if (stdout) {
-	std::cout << "pass: " << pass_score << std::endl
-		  << "value: " << result.value << std::endl
-		  << "winrate: " << winrate << std::endl
-		  << "alpha: " << result.alpha << std::endl
-		  << "beta: " << result.beta << std::endl;
-    }
-    else {
-	myprintf("pass: %d\n", pass_score);
-	myprintf("alpha: %f\n", result.alpha);
-	myprintf("beta: %f\n", result.beta);
-	myprintf("value: %f\n", result.value);
-	myprintf("winrate: %f\n", winrate);
+    const auto illegal_millis = int(illegal_score * 1000);
+
+    myprintf("pass: %d, illegal: %d\n", pass_score, illegal_millis);
+    if (is_mult_komi_net) {
+        const auto result_extended = get_extended(*state, result);
+        myprintf("alpha: %.2f, ", result.alpha);
+        myprintf("beta: %.2f, ", result.beta);
+        myprintf("winrate: %.1f%%\n", result_extended.winrate*100);
+        myprintf("black alpkt: %.2f,", result_extended.alpkt);
+        myprintf(" x_bar: %.2f,", result_extended.eval_bonus);
+        myprintf(" x_base: %.2f\n", result_extended.eval_base);
+    } else {
+        myprintf("value: %.1f%%\n", result.value*100);
     }
 
     if (topmoves) {
@@ -1280,35 +1369,86 @@ void Network::fill_input_plane_pair(const FullBoard& board,
     }
 }
 
+void Network::fill_input_plane_advfeat(std::shared_ptr<const KoState> const state,
+                                    std::vector<net_t>::iterator legal,
+                                    std::vector<net_t>::iterator atari,
+                                    const int symmetry) {
+    for (auto idx = 0; idx < BOARD_SQUARES; idx++) {
+        const auto sym_idx = symmetry_nn_idx_table[symmetry][idx];
+        const auto x = sym_idx % BOARD_SIZE;
+        const auto y = sym_idx / BOARD_SIZE;
+	const auto vertex = state->board.get_vertex(x,y);
+	const auto tomove = state->get_to_move();
+	const auto is_legal = state->is_move_legal(tomove, vertex);
+	legal[idx] = !is_legal;
+	atari[idx] = is_legal && (1 == state->board.liberties_to_capture(vertex));
+    }
+}
+
 std::vector<net_t> Network::gather_features(const GameState* const state,
-                                            const int symmetry) {
+					    const int symmetry,
+					    const int input_moves,
+					    const bool adv_features,
+					    const bool include_color) {
     assert(symmetry >= 0 && symmetry <= 7);
-    auto input_data = std::vector<net_t>(arch.input_planes * BOARD_SQUARES);
+
+    // if advanced board features are included, for every input move
+    // in addition to 2 planes with the stones there are 2 planes with
+    // legal moves for current player and "atari" intersections for
+    // either player
+    auto moves_planes = input_moves * (2 + (adv_features ? 2 : 0));
+
+    // if the color of the current player is included, two more input
+    // planes are needed, otherwise one input plane filled with ones
+    // will provide information on the border of the board for the CNN
+    auto input_planes = moves_planes + (include_color ? 2 : 1);
+
+    auto input_data = std::vector<net_t>(input_planes * BOARD_SQUARES);
+
+    const auto current_it = begin(input_data);
+    const auto opponent_it = begin(input_data) + input_moves * BOARD_SQUARES;
+    auto legal_it = current_it;
+    auto atari_it = current_it;
+
+    if (adv_features) {
+	legal_it += 2 * input_moves * BOARD_SQUARES;
+	atari_it += 3 * input_moves * BOARD_SQUARES;
+    }
 
     const auto to_move = state->get_to_move();
     const auto blacks_move = to_move == FastBoard::BLACK;
+    const auto black_it = blacks_move ? current_it : opponent_it;
+    const auto white_it = blacks_move ? opponent_it : current_it;
+    // myprintf("input moves: %d, advanced features: %d, include color: %d\n"
+    // 	     "moves planes: %d, input planes: %d, to move: %d, blacks_move: %d\n",
+    // 	     input_moves, adv_features, include_color,
+    // 	     moves_planes, input_planes, to_move, blacks_move);
 
-    const auto black_it = blacks_move ?
-                          begin(input_data) :
-                          begin(input_data) + INPUT_MOVES * BOARD_SQUARES;
-    const auto white_it = blacks_move ?
-                          begin(input_data) + INPUT_MOVES * BOARD_SQUARES :
-                          begin(input_data);
-    const auto to_move_it = blacks_move ?
-        begin(input_data) + 2 * INPUT_MOVES * BOARD_SQUARES :
-        begin(input_data) + (2 * INPUT_MOVES + 1) * BOARD_SQUARES;
+    // we fill one plane with ones: this is the only one remaining
+    // when the color of current player is not included, otherwise it
+    // is one of the two last plane, depending on current player
+    const auto onesfilled_it = 	blacks_move || !include_color ?
+	begin(input_data) + moves_planes * BOARD_SQUARES :
+	begin(input_data) + (moves_planes + 1) * BOARD_SQUARES;
+    std::fill(onesfilled_it, onesfilled_it + BOARD_SQUARES, net_t(true));
 
-    const auto moves = std::min<size_t>(state->get_movenum() + 1, INPUT_MOVES);
+    const auto moves = std::min<size_t>(state->get_movenum() + 1, input_moves);
     // Go back in time, fill history boards
     for (auto h = size_t{0}; h < moves; h++) {
         // collect white, black occupation planes
-        fill_input_plane_pair(state->get_past_board(h),
+        fill_input_plane_pair(state->get_past_state(h)->board,
                               black_it + h * BOARD_SQUARES,
                               white_it + h * BOARD_SQUARES,
                               symmetry);
+	if (adv_features) {
+	    fill_input_plane_advfeat(state->get_past_state(h),
+				     legal_it + h * BOARD_SQUARES,
+				     atari_it + h * BOARD_SQUARES,
+				     symmetry);
+
+	}
     }
 
-    std::fill(to_move_it, to_move_it + BOARD_SQUARES, net_t(true));
 
     return input_data;
 }

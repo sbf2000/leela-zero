@@ -128,7 +128,7 @@ class TFProcess:
         # Recalculate SWA weight batchnorm means and variances
         self.swa_recalc_bn = False
 
-        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
+        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.4)
         config = tf.ConfigProto(gpu_options=gpu_options)
         self.session = tf.Session(config=config)
 
@@ -154,7 +154,7 @@ class TFProcess:
 
         planes = tf.to_float(planes)
 
-        planes = tf.reshape(planes, (batch_size, 18, BOARD_SQUARES))
+        planes = tf.reshape(planes, (batch_size, 17+INPUT_STM, BOARD_SQUARES))
         probs = tf.reshape(probs, (batch_size, BOARD_SQUARES + 1))
         komi = tf.reshape(komi, (batch_size, 1))
         winner = tf.reshape(winner, (batch_size, 1))
@@ -405,7 +405,7 @@ class TFProcess:
     def save_leelaz_weights(self, filename):
         with open(filename, "w") as file:
             # Version tag
-            file.write("1")
+            file.write(WEIGHTS_FILE_VER)
             for weights in self.weights:
                 # Newline unless last line (single bias)
                 file.write("\n")
@@ -501,12 +501,12 @@ class TFProcess:
     def construct_net(self, planes, komi):
         # NCHW format
         # batch, 18 channels, BOARD_SIZE x BOARD_SIZE
-        x_planes = tf.reshape(planes, [-1, 18, BOARD_SIZE, BOARD_SIZE])
+        x_planes = tf.reshape(planes, [-1, 17+INPUT_STM, BOARD_SIZE, BOARD_SIZE])
         x_komi = tf.reshape(komi, [-1, 1])
 
         # Input convolution
         flow = self.conv_block(x_planes, filter_size=3,
-                               input_channels=18,
+                               input_channels=17+INPUT_STM,
                                output_channels=self.RESIDUAL_FILTERS)
         # Residual tower
         for _ in range(0, self.RESIDUAL_BLOCKS):

@@ -50,6 +50,7 @@ using namespace Utils;
 
 // Configuration flags
 bool cfg_gtp_mode;
+bool cfg_japanese_mode;
 bool cfg_allow_pondering;
 int cfg_num_threads;
 int cfg_max_threads;
@@ -60,8 +61,11 @@ int cfg_lagbuffer_cs;
 int cfg_resignpct;
 int cfg_noise;
 bool cfg_fpuzero;
+bool cfg_adv_features;
+bool cfg_exploit_symmetries;
 float cfg_noise_value;
 float cfg_lambda;
+float cfg_mu;
 float cfg_komi;
 int cfg_random_cnt;
 int cfg_random_min_visits;
@@ -86,6 +90,7 @@ float cfg_blunder_thr;
 
 void GTP::setup_default_parameters() {
     cfg_gtp_mode = false;
+    cfg_japanese_mode = false;
     cfg_allow_pondering = true;
     cfg_max_threads = std::max(1, std::min(SMP::get_num_cpus(), MAX_CPUS));
 #ifdef USE_OPENCL
@@ -98,6 +103,7 @@ void GTP::setup_default_parameters() {
     cfg_max_visits = UCTSearch::UNLIMITED_PLAYOUTS;
     cfg_komi = 7.5f;
     cfg_lambda = 0.5f;
+    cfg_mu = 0.0f;
     cfg_timemanage = TimeManagement::AUTO;
     cfg_lagbuffer_cs = 100;
 #ifdef USE_OPENCL
@@ -112,6 +118,8 @@ void GTP::setup_default_parameters() {
     // if negative, the default is 10%, otherwise, this value % is used
     cfg_resignpct = -1;
     cfg_fpuzero = false;
+    cfg_adv_features = false;
+    cfg_exploit_symmetries = false;
     cfg_noise = false;
     cfg_noise_value = 0.03;
     cfg_random_cnt = 0;
@@ -443,12 +451,26 @@ bool GTP::execute(GameState & game, std::string xinput) {
         gtp_printf(id, "");
         game.display_state();
         return true;
+    } else if (command.find("showlegal") == 0) {
+        gtp_printf(id, "");
+        game.display_legal(game.get_to_move());
+        return true;
     } else if (command.find("final_score") == 0) {
-        float ftmp = game.final_score();
+        float ftmp;
+        if (!cfg_japanese_mode) {
+            ftmp = game.final_score();
+        } else {
+            ftmp = search->final_japscore();
+            if (ftmp > BOARD_SQUARES * 10.0) {
+                gtp_fail_printf(id, "japanese scoring failed "
+                                "while trying to remove dead groups");
+                return true;
+            }
+        }
         /* white wins */
-        if (ftmp < -0.1) {
+        if (ftmp < -0.0001f) {
             gtp_printf(id, "W+%3.1f", float(fabs(ftmp)));
-        } else if (ftmp > 0.1) {
+        } else if (ftmp > 0.0001f) {
             gtp_printf(id, "B+%3.1f", ftmp);
         } else {
             gtp_printf(id, "0");
@@ -570,7 +592,7 @@ bool GTP::execute(GameState & game, std::string xinput) {
             for (auto r = 0; r < 8; r++) {
                 vec = Network::get_scored_moves(
                     &game, Network::Ensemble::DIRECT, r, true);
-                Network::show_heatmap(&game, vec, false, false);
+                Network::show_heatmap(&game, vec, false);
             }
         } else if (symmetry == "average" || symmetry == "avg") {
             vec = Network::get_scored_moves(
@@ -581,27 +603,10 @@ bool GTP::execute(GameState & game, std::string xinput) {
         }
 
         if (symmetry != "all") {
-            Network::show_heatmap(&game, vec, false, false);
+            Network::show_heatmap(&game, vec, false);
         }
 
         gtp_printf(id, "");
-        return true;
-    } else if (command.find("hm") == 0) {
-        const Network::Netresult vec = Network::get_scored_moves(
-					&game, Network::Ensemble::DIRECT, 0, true);
-
-	Network::show_heatmap(&game, vec, false, true);
-
-	// const auto komi = game.get_komi();
-	// const auto winrate = sigmoid( vec.alpha,
-	// 			      vec.beta,
-	// 			      game.board.black_to_move() ? -komi : komi );
-
-	// std::cout << (is_mult_komi_net ? winrate : vec.value) << std::endl
-	// 	  << vec.alpha << std::endl
-	// 	  << vec.beta << std::endl;
-
-
         return true;
     } else if (command.find("fixed_handicap") == 0) {
         std::istringstream cmdstream(command);
@@ -819,6 +824,13 @@ bool GTP::execute(GameState & game, std::string xinput) {
             who_won = FullBoard::WHITE;
         } else if (winner_color == "b" || winner_color == "black") {
             who_won = FullBoard::BLACK;
+        } else if (winner_color == "0" ||
+                   winner_color == "n" ||
+                   winner_color == "j" ||
+                   winner_color == "d" ||
+                   winner_color == "jigo" ||
+                   winner_color == "draw") {
+            who_won = FullBoard::EMPTY;
         } else {
             gtp_fail_printf(id, "syntax not understood");
             return true;

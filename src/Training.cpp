@@ -141,12 +141,22 @@ void Training::clear_training() {
 }
 
 TimeStep::NNPlanes Training::get_planes(const GameState* const state) {
-    const auto input_data = Network::gather_features(state, 0);
-
+    const auto input_data =
+	Network::gather_features(state, 0,
+				 cfg_adv_features ? Network::REDUCED_INPUT_MOVES :
+				 Network::DEFAULT_INPUT_MOVES,
+				 cfg_adv_features, false);
     auto planes = TimeStep::NNPlanes{};
-    planes.resize(Network::INPUT_CHANNELS);
 
-    for (auto c = size_t{0}; c < Network::INPUT_CHANNELS; c++) {
+    // for now the number of planes coding the position is always 16,
+    // but in general it is a number of feature planes (2 or 4
+    // depending on advanced features) times a number of moves in
+    // recorded history (8 or 4 depending on advanced features)
+    const auto moves_planes = (2 + (cfg_adv_features ? 2 : 0))
+	* (cfg_adv_features ? Network::REDUCED_INPUT_MOVES : Network::DEFAULT_INPUT_MOVES);
+    planes.resize(moves_planes);
+
+    for (auto c = size_t{0}; c < moves_planes; c++) {
         for (auto idx = 0; idx < BOARD_SQUARES; idx++) {
             planes[c][idx] = bool(input_data[c * BOARD_SQUARES + idx]);
         }
@@ -165,7 +175,8 @@ void Training::record(GameState& state, UCTNode& root) {
     step.komi = komi;
     step.is_blunder = state.is_blunder();
     step.net_winrate = sigmoid(result.alpha, result.beta,
-			       state.board.black_to_move() ? -komi : komi);
+			       state.board.black_to_move() ?
+                               -komi : komi).first;
 
     const auto& best_node = root.get_best_root_child(step.to_move);
     step.root_uct_winrate = root.get_eval(step.to_move);
@@ -189,12 +200,24 @@ void Training::record(GameState& state, UCTNode& root) {
         return;
     }
 
+    std::vector<int> stabilizer_subgroup;
+
+    for (auto i = 0; i < 8; i++) {
+        if(i == 0 || (cfg_exploit_symmetries && state.is_symmetry_invariant(i))) {
+            stabilizer_subgroup.emplace_back(i);
+        }
+    }
+
     for (const auto& child : root.get_children()) {
         auto prob = static_cast<float>(child->get_visits() / sum_visits);
         auto move = child->get_move();
         if (move != FastBoard::PASS) {
-            auto xy = state.board.get_xy(move);
-            step.probabilities[xy.second * BOARD_SIZE + xy.first] = prob;
+            const auto frac_prob = prob / stabilizer_subgroup.size();
+            for (auto sym : stabilizer_subgroup) {
+                const auto sym_move = state.board.get_sym_move(move, sym);
+                const auto sym_idx = state.board.get_index(sym_move);
+                step.probabilities[sym_idx] += frac_prob;
+            }
         } else {
             step.probabilities[BOARD_SQUARES] = prob;
         }
@@ -286,8 +309,14 @@ void Training::dump_training(int winner_color, OutputChunker& outchunk) {
         // And the game result for the side to move
         if (it->to_move == winner_color) {
             out << "1";
-        } else {
+        } else if (winner_color == FastBoard::WHITE &&
+                   it->to_move == FastBoard::BLACK) {
             out << "-1";
+        } else if (winner_color == FastBoard::BLACK &&
+                   it->to_move == FastBoard::WHITE) {
+            out << "-1";
+        } else if (winner_color == FastBoard::EMPTY) {
+            out << "0";
         }
         out << std::endl;
         training_str.append(out.str());
@@ -402,7 +431,9 @@ void Training::dump_supervised(const std::string& sgf_name,
 
         auto who_won = sgftree->get_winner();
         // Accept all komis and handicaps, but reject no usable result
-        if (who_won != FastBoard::BLACK && who_won != FastBoard::WHITE) {
+        if (who_won != FastBoard::BLACK &&
+            who_won != FastBoard::WHITE &&
+            who_won != FastBoard::EMPTY) {
             continue;
         }
 

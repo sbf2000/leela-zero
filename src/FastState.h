@@ -35,9 +35,10 @@ public:
 
     void play_move(int vertex);
 
-    bool is_move_legal(int color, int vertex);
+    bool is_move_legal(int color, int vertex) const;
 
     void set_komi(float komi);
+    void add_komi(float delta);
     float get_komi() const;
     void set_handicap(int hcap);
     int get_handicap() const;
@@ -52,14 +53,13 @@ public:
     size_t get_movenum() const;
     int get_last_move() const;
     void display_state();
+    void display_legal(int color);
     std::string move_to_text(int move);
 
     void set_blunder_state(bool state);
     bool is_blunder();
-
-    //    size_t get_last_rnd_move_num();
-    //    void set_last_rnd_move_num(size_t num);
-
+    bool is_symmetry_invariant(const int symmetry) const;
+    
     FullBoard board;
 
     float m_komi;
