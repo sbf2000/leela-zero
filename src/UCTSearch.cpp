@@ -164,7 +164,6 @@ float UCTSearch::get_min_psa_ratio() const {
 
 SearchResult UCTSearch::play_simulation(GameState & currstate,
                                         UCTNode* const node) {
-    const auto color = currstate.get_to_move();
     auto result = SearchResult{};
 
     node->virtual_loss();
@@ -206,7 +205,7 @@ SearchResult UCTSearch::play_simulation(GameState & currstate,
     }
 
     if (node->has_children() && !result.valid()) {
-        auto next = node->uct_select_child(color,
+        auto next = node->uct_select_child(currstate,
                                            node == m_root.get(),
                                            m_per_node_maxvisits,
                                            m_allowed_root_children,
@@ -496,12 +495,12 @@ int UCTSearch::get_best_move(passflag_t passflag) {
             // end the game immediately?
             float score = m_rootstate.final_score();
             // do we lose by passing?
-            if ((score > 0.0f && color == FastBoard::WHITE)
+            if ((score > -0.001f  && color == FastBoard::WHITE)
                 ||
-                (score < 0.0f && color == FastBoard::BLACK)) {
-                myprintf("Passing loses, I'll play on.\n");
+                (score < 0.001f && color == FastBoard::BLACK)) {
+                myprintf("Passing loses or ties; I'll play on.\n");
             } else {
-                myprintf("Passing wins, I'll pass out.\n");
+                myprintf("Passing wins; I'll pass out.\n");
                 bestmove = FastBoard::PASS;
             }
         }
@@ -1070,7 +1069,6 @@ void UCTSearch::fast_roll_out() {
                 break;
             }
 
-            const auto first_move = FastBoard::PASS;
             const auto second_move = second->get_move();
 
             if (second_move == FastBoard::PASS) {
@@ -1084,6 +1082,7 @@ void UCTSearch::fast_roll_out() {
 
 #ifndef NDEBUG
 
+            const auto first_move = FastBoard::PASS;
             myprintf("Roll-out step ends.\n"
                      "Best two moves (visits) are %s (%d) and %s (%d).\n",
                      m_rootstate.board.move_to_text(first_move).c_str(),

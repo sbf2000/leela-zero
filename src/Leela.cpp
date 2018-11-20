@@ -71,6 +71,12 @@ static void parse_commandline(int argc, char *argv[]) {
                      "Lambda value")
         ("mu",  po::value<float>()->default_value(cfg_mu),
                      "Mu value")
+        ("symm", "Exploit symmetries by collapsing policy values of "
+         "equivalent moves to a single one, chosen randomly. When writing "
+         "training data, split the visit count evenly among equivalent moves.")
+        ("nrsymm", "Same as --symm, but the move is chosen to be "
+         "in the general direction of the 'polite' eightth of the board, "
+         "instead of randomly. Disable NNCache.")
         ("lagbuffer,b", po::value<int>()->default_value(cfg_lagbuffer_cs),
                         "Safety margin for time usage in centiseconds.")
         ("resignpct,r", po::value<int>()->default_value(cfg_resignpct),
@@ -115,14 +121,14 @@ static void parse_commandline(int argc, char *argv[]) {
 	    po::value<float>()->default_value(cfg_blunder_thr),
 	    "If visits ratio with best is less than this, it's a blunder. "
 	    "Don't save training data for moves before last blunder.")
-        ("symm", "Exploit symmetries by collapsing policy values of "
-         "equivalent moves to a single one, chosen randomly. When writing "
-         "training data, split the visit count evenly among equivalent moves.")
+        ("recordvisits", "Don't normalize visits to probabilities "
+         "when writing training info.")
         ;
 #ifdef USE_TUNER
     po::options_description tuner_desc("Tuning options");
     tuner_desc.add_options()
         ("puct", po::value<float>())
+        ("policy_temp", po::value<float>())
         ("softmax_temp", po::value<float>())
         ("fpu_reduction", po::value<float>())
         ("fpu_zero", "Use constant fpu=0.5 (AlphaGoZero). "
@@ -195,6 +201,9 @@ static void parse_commandline(int argc, char *argv[]) {
 #ifdef USE_TUNER
     if (vm.count("puct")) {
         cfg_puct = vm["puct"].as<float>();
+    }
+    if (vm.count("policy_temp")) {
+        cfg_policy_temp = vm["policy_temp"].as<float>();
     }
     if (vm.count("softmax_temp")) {
         cfg_softmax_temp = vm["softmax_temp"].as<float>();
@@ -270,6 +279,10 @@ static void parse_commandline(int argc, char *argv[]) {
         cfg_dumbpass = true;
     }
 
+    if (vm.count("recordvisits")) {
+        cfg_recordvisits = true;
+    }
+
     if (vm.count("playouts")) {
         cfg_max_playouts = vm["playouts"].as<int>();
         if (!vm.count("noponder")) {
@@ -319,8 +332,12 @@ static void parse_commandline(int argc, char *argv[]) {
     }
     if (vm.count("symm")) {
         cfg_exploit_symmetries = true;
+        cfg_symm_nonrandom = false;
     }
-
+    if (vm.count("nrsymm")) {
+        cfg_exploit_symmetries = true;
+        cfg_symm_nonrandom = true;
+    }
     if (vm.count("timemanage")) {
         auto tm = vm["timemanage"].as<std::string>();
         if (tm == "auto") {

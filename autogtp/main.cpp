@@ -80,11 +80,11 @@ int main(int argc, char *argv[]) {
 
     QCommandLineOption publicAuthKeyOption(
         "key" , "Set keys needed by the server for submitting games and matches",
-                "key", "");
+                "key", "sai20180920");
 
     QCommandLineOption serverUrlOption(
         "url", "Set the URL of leela-zero/SAI server",
-                "server url", "http://localhost:8080/");
+                "server url", "http://www.sai9.club:18080/");
 
     parser.addOption(gamesNumOption);
     parser.addOption(gpusOption);
