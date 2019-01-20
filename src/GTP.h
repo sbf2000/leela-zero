@@ -43,7 +43,6 @@ extern int cfg_noise;
 extern bool cfg_fpuzero;
 extern bool cfg_adv_features;
 extern bool cfg_exploit_symmetries;
-extern bool cfg_symm_nonrandom;
 extern float cfg_noise_value;
 extern float cfg_komi;
 extern float cfg_lambda;
@@ -53,7 +52,6 @@ extern int cfg_random_min_visits;
 extern float cfg_random_temp;
 extern std::uint64_t cfg_rng_seed;
 extern bool cfg_dumbpass;
-extern bool cfg_recordvisits;
 #ifdef USE_OPENCL
 extern std::vector<int> cfg_gpus;
 extern bool cfg_sgemm_exhaustive;
@@ -61,7 +59,6 @@ extern bool cfg_tune_only;
 #endif
 extern float cfg_puct;
 extern float cfg_softmax_temp;
-extern float cfg_policy_temp;
 extern float cfg_fpu_reduction;
 extern std::string cfg_logfile;
 extern std::string cfg_weightsfile;

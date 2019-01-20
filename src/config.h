@@ -35,7 +35,7 @@
  * BOARD_SIZE: Define size of the board to compile Leela with, must be an odd
    number due to winograd tiles
  */
-#define BOARD_SIZE 9
+#define BOARD_SIZE 19
 #define BOARD_SQUARES (BOARD_SIZE*BOARD_SIZE)
 
 #if (BOARD_SIZE % 2 == 0)
@@ -51,7 +51,7 @@
  * Also used for OpenCL self-checks.
  */
 #define USE_BLAS
-#define USE_CPU_ONLY
+//#define USE_CPU_ONLY
 
 /*
  * We use OpenBLAS by default, except on macOS, which has a fast BLAS

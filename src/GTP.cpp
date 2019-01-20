@@ -63,7 +63,6 @@ int cfg_noise;
 bool cfg_fpuzero;
 bool cfg_adv_features;
 bool cfg_exploit_symmetries;
-bool cfg_symm_nonrandom;
 float cfg_noise_value;
 float cfg_lambda;
 float cfg_mu;
@@ -73,14 +72,12 @@ int cfg_random_min_visits;
 float cfg_random_temp;
 std::uint64_t cfg_rng_seed;
 bool cfg_dumbpass;
-bool cfg_recordvisits;
 #ifdef USE_OPENCL
 std::vector<int> cfg_gpus;
 bool cfg_sgemm_exhaustive;
 bool cfg_tune_only;
 #endif
 float cfg_puct;
-float cfg_policy_temp;
 float cfg_softmax_temp;
 float cfg_fpu_reduction;
 std::string cfg_weightsfile;
@@ -115,7 +112,6 @@ void GTP::setup_default_parameters() {
     cfg_tune_only = false;
 #endif
     cfg_puct = 0.8f;
-    cfg_policy_temp = 1.0f;
     cfg_softmax_temp = 1.25f;
     cfg_fpu_reduction = 0.25f;
     // see UCTSearch::should_resign
@@ -124,14 +120,12 @@ void GTP::setup_default_parameters() {
     cfg_fpuzero = false;
     cfg_adv_features = false;
     cfg_exploit_symmetries = false;
-    cfg_symm_nonrandom = false;
     cfg_noise = false;
     cfg_noise_value = 0.03;
     cfg_random_cnt = 0;
     cfg_random_min_visits = 1;
     cfg_random_temp = 0.8f;
     cfg_dumbpass = false;
-    cfg_recordvisits = false;
     cfg_logfile_handle = nullptr;
     cfg_quiet = false;
     cfg_benchmark = false;

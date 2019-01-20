@@ -317,14 +317,7 @@ int Network::load_v1_network(std::istream& wtfile) {
 	    myprintf("%dx%d board.\n", BOARD_SIZE, BOARD_SIZE);
 	    ip_pol_w = std::move(weights);
         } else if (linecount == plain_conv_wts + 5) {
-	    if (n_wts != BOARD_SQUARES+1) {
-                const auto netboardsize = std::sqrt(n_wts-1);
-                myprintf("\nGiven network is for %.0fx%.0f, but this version "
-                         "of SAI was compiled for %dx%d board!\n",
-                         netboardsize, netboardsize, BOARD_SIZE, BOARD_SIZE);
-                return 1;
-            }
-            
+	    assert (n_wts == BOARD_SQUARES+1);
             ip_pol_b = std::move(weights);
 
         } else if (linecount == plain_conv_wts + 6) {
@@ -1115,10 +1108,8 @@ Network::Netresult Network::get_scored_moves(
         result = get_scored_moves_internal(state, rand_sym);
     }
 
-    if (!cfg_symm_nonrandom) {
-        // Insert result into cache.
-        NNCache::get_NNCache().insert(state->board.get_hash(), result);
-    }
+    // Insert result into cache.
+    NNCache::get_NNCache().insert(state->board.get_hash(), result);
 
     return result;
 }
