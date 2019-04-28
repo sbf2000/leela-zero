@@ -362,7 +362,7 @@ Order Management::getWorkInternal(bool tuning) {
             << "Server requires client version " << required_version
             << " but we are version " << m_version << endl;
         QTextStream(stdout)
-            << "Check https://github.com/gcp/leela-zero for updates." << endl;
+            << "Check http://www.sai9.club:10090/ for updates." << endl;
         exit(EXIT_FAILURE);
     }
     //passing leela version
@@ -399,7 +399,7 @@ Order Management::getWorkInternal(bool tuning) {
         fetchNetwork(net);
         o.type(Order::Production);
         parameters["network"] = net;
-        parameters["selfplay_id"] = ob.value("selfplay_id").toString();
+        //parameters["selfplay_id"] = ob.value("selfplay_id").toString();   //modify 
         parameters["sgf"] = ob.contains("sgfhash") ? fetchGameData(ob.value("sgfhash").toString(), "sgf") : "" ;
         parameters["moves"] = ob.contains("movescount") ? ob.value("movescount").toString() : "0";
         o.parameters(parameters);

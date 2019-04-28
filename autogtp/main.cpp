@@ -80,11 +80,11 @@ int main(int argc, char *argv[]) {
 
     QCommandLineOption publicAuthKeyOption(
         "key" , "Set keys needed by the server for submitting games and matches",
-                "key", "sai20180920");
+                "key", "sai20190403"); //modify sbf
 
     QCommandLineOption serverUrlOption(
         "url", "Set the URL of leela-zero/SAI server",
-                "server url", "http://www.sai9.club:18080/");
+                "server url", "http://www.sai9.club:10090/"); //modify sbf
 
     parser.addOption(gamesNumOption);
     parser.addOption(gpusOption);
@@ -153,7 +153,7 @@ int main(int argc, char *argv[]) {
     }
     Management *boss = new Management(gpusNum, gamesNum, gpusList, AUTOGTP_VERSION, maxNum,
                                       parser.isSet(eraseOption), parser.value(keepSgfOption),
-                                      parser.value(keepDebugOption), parser.value(serverUrlOption),
+                                      parser.value(keepDebugOption), parser.value(serverUrlOption), 
                                       parser.value(publicAuthKeyOption));
     QObject::connect(&app, &QCoreApplication::aboutToQuit, boss, &Management::storeGames);
     QTimer *timer = new QTimer();

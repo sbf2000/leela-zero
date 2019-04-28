@@ -259,14 +259,13 @@ int FastBoard::calc_reach_color(int color) const {
     return calc_reach_color(color, EMPTY, bd, false);
 }
 
-
+//modify 1 begin for an
 int FastBoard::calc_reach_color(int color,
                                 int spread_color,
                                 std::vector<bool> & bd,
                                 bool territory) const {
     auto reachable = 0;
     bd.resize(m_maxsq);
-    auto open = std::queue<int>();
     for (auto i = 0; i < m_boardsize; i++) {
         for (auto j = 0; j < m_boardsize; j++) {
             const auto vertex = get_vertex(i, j);
@@ -275,31 +274,14 @@ int FastBoard::calc_reach_color(int color,
             if (peek == color) {
                 reachable++;
                 bd[vertex] = true;
-                open.push(vertex);
             } else {
                 bd[vertex] = false;
             }
         }
     }
-    while (!open.empty()) {
-        /* colored field, spread */
-        auto vertex = open.front();
-        open.pop();
-
-        for (auto k = 0; k < 4; k++) {
-            auto neighbor = vertex + m_dirs[k];
-            const auto peek = territory ?
-                int(m_territory[neighbor]) : int(m_square[neighbor]);
-            if (!bd[neighbor] && peek == spread_color) {
-                reachable++;
-                bd[neighbor] = true;
-                open.push(neighbor);
-            }
-        }
-    }
     return reachable;
 }
-
+//modify 1 end
 // Needed for scoring passed out games not in MC playouts
 float FastBoard::area_score(float komi) const {
     auto white = calc_reach_color(WHITE);

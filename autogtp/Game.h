@@ -23,7 +23,7 @@
 #include <QProcess>
 #include <tuple>
 
-#define BOARD_SIZE 9
+#define BOARD_SIZE 19
 
 using VersionTuple = std::tuple<int, int, int>;
 
